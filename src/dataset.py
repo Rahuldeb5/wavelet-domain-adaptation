@@ -1,6 +1,8 @@
 from torch.utils.data import Dataset
 from torchvision import transforms
 import tifffile as tif
+from wavelet import wavelet_adapt
+from config import DEVICE
 
 normalize_05 = transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
 to_tensor = transforms.ToTensor()
@@ -21,5 +23,19 @@ class LandslideDataset(Dataset):
         
         img = imageTransform(tif.imread(img))
         mask = (to_tensor(tif.imread(mask)) > 0).float()
+        
+        return img, mask
+
+class AdaptedDataset(Dataset):
+    def __init__(self, img_tensors, mask_list):
+        self.img_tensors = img_tensors
+        self.mask_list = mask_list
+    
+    def __len__(self):
+        return len(self.img_tensors)
+    
+    def __getitem__(self, idx):
+        img = normalize_05(self.img_tensors[idx])
+        mask = (to_tensor(tif.imread(self.mask_list[idx])) > 0).float()
         
         return img, mask
