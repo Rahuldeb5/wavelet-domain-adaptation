@@ -30,13 +30,32 @@ for region in regions:
 
     regions_dict[region] = all_images
 
-def baseline():
-    output = "source_region,target_region,precision,recall,f1,iou,miou,oa"
-    
-    csv_dir = f"../../results/baseline"
+def baseline():    
+    csv_dir = f"../results/baseline"
     os.makedirs(csv_dir, exist_ok=True)
+    csv_path = f"{csv_dir}/baseline.csv"
+    
+    done = set()
+    if os.path.exists(csv_path):
+        with open(csv_path, "r") as f:
+            for line in f:
+                if line.startswith("source"):
+                    continue
+                parts = line.strip().split(",")
+                if len(parts) >= 2:
+                    done.add((parts[0].strip(), parts[1].strip()))
+    else:
+        with open(csv_path, "w") as f:
+            f.write("source_region,target_region,precision,recall,f1,iou,miou,oa\n")
 
     for source_region in regions_dict:
+        all_done = all(
+            (source_region, t) in done
+            for t in regions_dict if t != source_region
+        )
+        if all_done:
+            continue
+        
         source_images = regions_dict[source_region]
         source_masks = [f.replace("img", "mask") for f in source_images]
 
@@ -67,12 +86,10 @@ def baseline():
 
             precision, recall, f1, iou, miou, oa = test_model(model, testLoader)
 
-            result = f"{source_region}, {target_region}, {precision:.4f}, {recall:.4f}, {f1:.4f}, {iou:.4f}, {miou:.4f}, {oa:.4f}"
-            output += f"\n{result}"
+            with open(csv_path, "a") as f:
+                f.write(f"{source_region},{target_region},{precision:.4f},{recall:.4f},{f1:.4f},{iou:.4f},{miou:.4f},{oa:.4f}\n")
 
-    csv_path = f"{csv_dir}/baseline.csv"
-    with open(csv_path, "w") as f:
-        f.write(output)
+            print(f"{source_region} -> {target_region}: IoU={iou:.4f}")
 
 if __name__ == "__main__":
     import argparse
@@ -84,7 +101,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs("../logs", exist_ok=True)
     sys.stdout = open(f"../logs/{args.method}_{timestamp}.log", "w", buffering=1)
 
     if args.method == "baseline":
