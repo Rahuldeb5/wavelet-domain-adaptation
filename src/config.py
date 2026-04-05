@@ -1,4 +1,6 @@
-DEVICE = 'cuda'
+import torch
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 THRESHOLD = 0.6
 POS_WEIGHT = 4.5
@@ -15,3 +17,6 @@ WEIGHT_DECAY = 1e-5
 RANDOM_SEED = 42
 
 TEST_SIZE = 0.2
+
+IMG_PATH = "../data/"
+IMG_LIMIT = 100

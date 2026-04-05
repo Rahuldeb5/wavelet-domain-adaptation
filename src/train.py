@@ -5,7 +5,7 @@ from config import EPOCHS, THRESHOLD, PATIENCE, DEVICE
 
 import copy
 
-def train_model(model, optimizer, train_loader, val_loader, src_region, tgt_region):
+def train_model(model, optimizer, train_loader, val_loader, src_region, tgt_region=None):
     best_iou = 0.0
     counter = 0
     
