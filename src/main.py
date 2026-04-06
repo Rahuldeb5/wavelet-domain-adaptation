@@ -11,6 +11,7 @@ import numpy as np
 from torchvision.transforms import ToTensor
 import tifffile as tif
 from wavelet import compute_mean_LL, wavelet_adapt
+from fourier import compute_mean_amplitude, fourier_adapt
 from config import RANDOM_SEED, IMG_PATH, IMG_LIMIT, TEST_SIZE, BATCH_SIZE, LR, WEIGHT_DECAY, DEVICE
 
 random.seed(RANDOM_SEED)
@@ -159,6 +160,69 @@ def wavelet(alpha):
 
             print(f"{source_region} -> {target_region}: IoU={iou:.4f}")
 
+def fourier(beta):
+    csv_dir = "../results/fourier"
+    os.makedirs(csv_dir, exist_ok=True)
+    csv_path = f"{csv_dir}/fourier_b{int(beta*100)}.csv"
+
+    done = set()
+    if os.path.exists(csv_path):
+        with open(csv_path, "r") as f:
+            for line in f:
+                if line.startswith("source"):
+                    continue
+                parts = line.strip().split(",")
+                if len(parts) >= 2:
+                    done.add((parts[0].strip(), parts[1].strip()))
+    else:
+        with open(csv_path, "w") as f:
+            f.write("source_region,target_region,precision,recall,f1,iou,miou,oa\n")
+
+    for target_region in regions_dict:
+        tgt_images = regions_dict[target_region]
+        tgt_tensors = [to_tensor(tif.imread(p)).to(DEVICE) for p in tgt_images]
+        mean_amp = compute_mean_amplitude(tgt_tensors)
+
+        tgt_test_mask = [f.replace("img", "mask") for f in tgt_images]
+        test_dataset = LandslideDataset(tgt_images, tgt_test_mask)
+        testLoader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+
+        for source_region in regions_dict:
+            if source_region == target_region:
+                continue
+            if (source_region, target_region) in done:
+                continue
+
+            source_images = regions_dict[source_region]
+            source_masks = [f.replace("img", "mask") for f in source_images]
+
+            train_img, val_img, train_mask, val_mask = train_test_split(
+                source_images, source_masks, test_size=TEST_SIZE, random_state=RANDOM_SEED
+            )
+
+            adapted_imgs = []
+            for p in train_img:
+                src_tensor = to_tensor(tif.imread(p)).to(DEVICE)
+                adapted = fourier_adapt(src_tensor, mean_amp, beta)
+                adapted_imgs.append(adapted.cpu())
+
+            train_dataset = AdaptedDataset(adapted_imgs, train_mask)
+            val_dataset = LandslideDataset(val_img, val_mask)
+            trainLoader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+            valLoader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+
+            model = ResNetUNet().to(DEVICE)
+            optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+
+            train_model(model, optimizer, trainLoader, valLoader, source_region, target_region)
+
+            precision, recall, f1, iou, miou, oa = test_model(model, testLoader)
+
+            with open(csv_path, "a") as f:
+                f.write(f"{source_region},{target_region},{precision:.4f},{recall:.4f},{f1:.4f},{iou:.4f},{miou:.4f},{oa:.4f}\n")
+
+            print(f"{source_region} -> {target_region}: IoU={iou:.4f}")
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -167,6 +231,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", required=True)
     parser.add_argument("--alpha", type=float, default=0.20)
+    parser.add_argument("--beta", type=float, default=0.10)
     args = parser.parse_args()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -177,3 +242,5 @@ if __name__ == "__main__":
         baseline()
     elif args.method == "wavelet":
         wavelet(alpha=args.alpha)
+    elif args.method == "fourier":
+        fourier(beta=args.beta)
