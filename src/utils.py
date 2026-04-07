@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from config import POS_WEIGHT, LAMBDA_DICE, DEVICE
 
 def getMetrics(TP, TN, FP, FN):
@@ -26,3 +27,32 @@ criterion_ce = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([POS_WEIGHT], device
 
 def seg_loss(logits, targets):
     return criterion_ce(logits, targets) + LAMBDA_DICE * dice_loss(logits, targets)
+
+def cosine_similarity(a, b):
+    a_flat = a.flatten().float()
+    b_flat = b.flatten().float()
+    
+    return (torch.dot(a_flat, b_flat) / (a_flat.norm() * b_flat.norm())).item()
+
+def l2_distance(a, b):
+    return (a.float() - b.float()).norm().item()
+
+def mean_pixel_diff(a, b):
+    a_mean = a.float().mean(dim=(1, 2))
+    b_mean = b.float().mean(dim=(1, 2))
+    
+    return (a_mean - b_mean).abs().mean().item()
+
+def histogram_intersection(a, b, bins=64):
+    a_np = a.float().numpy()
+    b_np = b.float().numpy()
+    score = 0.0
+    
+    for c in range(a_np.shape[0]):
+        a_hist, _ = np.histogram(a_np[c].ravel(), bins=bins, range=(0, 1))
+        b_hist, _ = np.histogram(b_np[c].ravel(), bins=bins, range=(0, 1))
+        a_hist = a_hist / (a_hist.sum() + 1e-8)
+        b_hist = b_hist / (b_hist.sum() + 1e-8)
+        score += np.minimum(a_hist, b_hist).sum()
+        
+    return score / a_np.shape[0]

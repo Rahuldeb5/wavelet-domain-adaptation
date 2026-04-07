@@ -12,6 +12,7 @@ from torchvision.transforms import ToTensor
 import tifffile as tif
 from wavelet import compute_mean_LL, wavelet_adapt
 from fourier import compute_mean_amplitude, fourier_adapt
+from utils import cosine_similarity, l2_distance, mean_pixel_diff, histogram_intersection
 from config import RANDOM_SEED, IMG_PATH, IMG_LIMIT, TEST_SIZE, BATCH_SIZE, LR, WEIGHT_DECAY, DEVICE
 
 random.seed(RANDOM_SEED)
@@ -223,6 +224,38 @@ def fourier(beta):
 
             print(f"{source_region} -> {target_region}: IoU={iou:.4f}")
 
+def similarity():
+    csv_dir = "../results/similarity"
+    os.makedirs(csv_dir, exist_ok=True)
+    csv_path = f"{csv_dir}/pairwise_similarity.csv"
+
+    with open(csv_path, "w") as f:
+        f.write("source_region,target_region,cosine_sim,l2_dist,mean_pixel_diff,hist_intersection\n")
+
+    print("Computing mean LL per region...")
+    mean_lls = {}
+    for region, paths in regions_dict.items():
+        tgt_tensors = [to_tensor(tif.imread(p)).to(DEVICE) for p in paths]
+        mean_ll = compute_mean_LL(tgt_tensors).squeeze(0).cpu()
+        mean_lls[region] = mean_ll
+        print(f"  {region}: {mean_ll.shape}")
+
+    print("Computing pairwise metrics...")
+    for src in regions_dict:
+        for tgt in regions_dict:
+            if src == tgt:
+                continue
+
+            cos = cosine_similarity(mean_lls[src], mean_lls[tgt])
+            l2 = l2_distance(mean_lls[src], mean_lls[tgt])
+            mpd = mean_pixel_diff(mean_lls[src], mean_lls[tgt])
+            hi = histogram_intersection(mean_lls[src], mean_lls[tgt])
+
+            with open(csv_path, "a") as f:
+                f.write(f"{src},{tgt},{cos:.6f},{l2:.6f},{mpd:.6f},{hi:.6f}\n")
+
+            print(f"{src} -> {tgt}: cos={cos:.4f}, l2={l2:.2f}, mpd={mpd:.4f}, hi={hi:.4f}")
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -244,3 +277,6 @@ if __name__ == "__main__":
         wavelet(alpha=args.alpha)
     elif args.method == "fourier":
         fourier(beta=args.beta)
+    elif args.method == "similarity":
+        similarity()
+
