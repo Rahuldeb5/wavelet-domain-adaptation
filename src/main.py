@@ -10,9 +10,11 @@ from train import train_model, test_model
 import numpy as np
 from torchvision.transforms import ToTensor
 import tifffile as tif
+import pandas as pd
 from wavelet import compute_mean_LL, wavelet_adapt
 from fourier import compute_mean_amplitude, fourier_adapt
 from utils import cosine_similarity, l2_distance, mean_pixel_diff, histogram_intersection
+from edge_analysis import analyze_pair
 from config import RANDOM_SEED, IMG_PATH, IMG_LIMIT, TEST_SIZE, BATCH_SIZE, LR, WEIGHT_DECAY, DEVICE
 
 random.seed(RANDOM_SEED)
@@ -256,6 +258,55 @@ def similarity():
 
             print(f"{src} -> {tgt}: cos={cos:.4f}, l2={l2:.2f}, mpd={mpd:.4f}, hi={hi:.4f}")
 
+def edge_distortion(alpha=0.40, beta=0.15):    
+    csv_dir = "../results/edge_analysis"
+    os.makedirs(csv_dir, exist_ok=True)
+    csv_path = f"{csv_dir}/edge_metrics_b{(int)(beta*100)}.csv"
+
+    with open(csv_path, "w") as f:
+        f.write("source_region,target_region,image_idx,"
+                "wav_hf_ratio,fda_hf_ratio,"
+                "wav_edge_sim,fda_edge_sim,"
+                "wav_LH_corr,wav_HL_corr,wav_HH_corr,"
+                "fda_LH_corr,fda_HL_corr,fda_HH_corr\n")
+
+    for target_region in regions_dict:
+        tgt_images = regions_dict[target_region]
+        tgt_tensors = [to_tensor(tif.imread(p)).to(DEVICE) for p in tgt_images]
+        mean_ll = compute_mean_LL(tgt_tensors)
+        mean_amp = compute_mean_amplitude(tgt_tensors)
+
+        for source_region in regions_dict:
+            if source_region == target_region:
+                continue
+
+            src_paths = regions_dict[source_region][:5]
+            for i, p in enumerate(src_paths):
+                src_tensor = to_tensor(tif.imread(p)).to(DEVICE)
+                
+                results = analyze_pair(src_tensor, mean_ll, mean_amp, alpha, beta)
+
+                with open(csv_path, "a") as f:
+                    f.write(f"{source_region},{target_region},{i},"
+                            f"{results['wav_hf_ratio']:.6f},{results['fda_hf_ratio']:.6f},"
+                            f"{results['wav_edge_sim']:.6f},{results['fda_edge_sim']:.6f},"
+                            f"{results['wav_LH_corr']:.6f},{results['wav_HL_corr']:.6f},{results['wav_HH_corr']:.6f},"
+                            f"{results['fda_LH_corr']:.6f},{results['fda_HL_corr']:.6f},{results['fda_HH_corr']:.6f}\n")
+
+            print(f"{source_region} -> {target_region}: done")
+    
+    df = pd.read_csv(csv_path)
+    print("\n" + "="*60)
+    print("EDGE DISTORTION SUMMARY")
+    print("="*60)
+    print(f"  Wavelet edge sim:  {df['wav_edge_sim'].mean():.4f} ± {df['wav_edge_sim'].std():.4f}")
+    print(f"  FDA edge sim:      {df['fda_edge_sim'].mean():.4f} ± {df['fda_edge_sim'].std():.4f}")
+    print(f"  Wavelet HF ratio:  {df['wav_hf_ratio'].mean():.4f} (should be ~1.0)")
+    print(f"  FDA HF ratio:      {df['fda_hf_ratio'].mean():.4f}")
+    print(f"  FDA LH corr:       {df['fda_LH_corr'].mean():.4f}")
+    print(f"  FDA HL corr:       {df['fda_HL_corr'].mean():.4f}")
+    print(f"  FDA HH corr:       {df['fda_HH_corr'].mean():.4f}")
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -279,4 +330,6 @@ if __name__ == "__main__":
         fourier(beta=args.beta)
     elif args.method == "similarity":
         similarity()
+    elif args.method == "edge":
+        edge_distortion()
 
